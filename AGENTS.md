@@ -33,12 +33,12 @@
 - 进一步整理项目包结构；当前 `train_image.py` 已增加根目录 fallback 导入，后续可再正式重构为 `datasets/`、`models/` 包目录。
 - 使用 `scripts/prepare_image_splits.py` 生成训练代码期望的 `DATA_ROOT/train|val|test/real|fake` 数据结构。
 - 继续清理兼容性细节；`train_image.py` 已改为项目内默认路径并支持环境变量覆盖，`image_preprocess.py` 的自测示例路径后续仍可整理。
-- 补充依赖文件，例如 `requirements.txt` 或 `pyproject.toml`。
-- 准备 Slurm 提交脚本，并根据服务器实际 GPU、内存和数据路径调整资源参数。
+- 维护 `requirements.txt` 中除 PyTorch/torchvision 之外的通用训练依赖；GPU 版 PyTorch 继续按服务器 CUDA 版本单独安装。
+- 使用 `slurm/train_image.slurm` 在 Slurm GPU 节点训练，并根据服务器实际 GPU、内存和数据路径调整资源参数。
 
 ## Current Status
 
-仓库当前已完成 Git 初版快照提交，并已推送到 GitHub public 仓库 `https://github.com/zh23jemu/ai-fake-image`。远端 `master` 使用分批提交历史承载完整文件树，包含模型、数据集、预处理、训练脚本、大量图片数据、项目维护记录、忽略规则和 Slurm 训练入口。当前正在不改变既定模型结构的前提下提升 AI 生成图像检测准确率，重点修复数据增强、噪声特征、训练配置和数据划分流程。
+仓库当前已完成 Git 初版快照提交，并已推送到 GitHub public 仓库 `https://github.com/zh23jemu/ai-fake-image`。远端 `master` 使用分批提交历史承载完整文件树，包含模型、数据集、预处理、训练脚本、大量图片数据、项目维护记录、忽略规则和 Slurm 训练入口。当前正在不改变既定模型结构的前提下提升 AI 生成图像检测准确率，已补强数据增强、噪声特征、训练配置、数据划分流程，并为服务器 GPU 训练完善 Slurm 提交脚本。
 
 ## Recent Changes
 
@@ -51,20 +51,22 @@
 - 调整噪声特征提取方式，保留高频残差幅值信息，避免负残差被直接清零。
 - 调整训练配置：默认使用项目内 `data/image`、`models/weights`、`results` 路径，降低学习率、减弱标签平滑、取消 fake 类额外权重、默认关闭加噪 TTA，并支持通过环境变量覆盖路径。
 - 新增 `scripts/prepare_image_splits.py`，可将 `content/` 原始图像整理为训练脚本需要的 `train/val/test/real/fake` 结构。
+- 增强 `slurm/train_image.slurm`：保留 `aws` GPU 分区、`gpo-ifv7xx` 账号和 `normal` QOS，增加 GPU/nvidia-smi 诊断、PyTorch CUDA 可用性检查、训练路径环境变量覆盖、输出目录创建，以及缺少 `data/image` 时自动生成软链接数据划分。
+- 新增 `requirements.txt`，记录 `numpy`、`scipy`、`opencv-python`、`pillow`、`scikit-learn`、`matplotlib`、`tqdm` 等通用依赖，并在注释中说明 GPU 版 PyTorch 需要使用 CUDA 12.x 兼容 wheel 单独安装。
 
 ## Next TODO
 
 - 进一步整理项目运行入口，优先修复导入路径和数据目录结构不一致问题。
 - 根据服务器环境创建 `.venv` 并安装 PyTorch CUDA 12.x 兼容依赖。
-- 补充依赖声明文件，并验证远端服务器上的最小导入与训练启动流程。
+- 验证远端服务器上的最小导入、CUDA 可用性和 Slurm 训练启动流程。
 - 远端服务器可从 GitHub public 仓库拉取当前完整快照，但首次 clone/pull 仍会因为图片数据量较大而耗时较长。
-- 在服务器上先运行数据划分脚本，再使用新的训练配置重新训练，重点观察验证集 accuracy/F1 是否从 60% 段提升到 80% 目标附近。
+- 使用新的 Slurm 脚本重新训练，重点观察验证集 accuracy/F1 是否从 60% 段提升到 80% 目标附近，并保存 `results/` 下曲线和指标用于报告。
 
 ## Open Issues
 
 - 当前尚未正式重构为 `datasets/` 和 `models/` 包目录，但 `train_image.py` 已增加根目录 fallback 导入，可在当前仓库结构下直接运行。
 - `train_image.py` 已改为项目内默认路径，并支持通过 `IMAGE_DATA_ROOT`、`IMAGE_SAVE_DIR`、`IMAGE_RESULT_DIR` 覆盖；`image_preprocess.py` 中的自测示例路径仍待后续整理。
-- 当前 `content/` 数据集本身仍是原始结构，需要运行 `scripts/prepare_image_splits.py` 生成训练用划分目录。
+- 当前 `content/` 数据集本身仍是原始结构；`slurm/train_image.slurm` 会在缺少 `data/image` 时自动运行 `scripts/prepare_image_splits.py` 生成训练用软链接划分，但首次生成仍需服务器文件系统支持 symlink。
 - `content/progress.json` 记录的部分计数与当前文件统计存在 1 张左右差异，需要后续核对是否是进度记录偏移或数据缺失。
 
 ## Architecture Decisions
@@ -73,3 +75,4 @@
 - 数据集目录 `content/` 暂不加入忽略规则，因为用户需要通过 Git 将项目快照同步到远端服务器。
 - 模型权重和训练检查点按可膨胀的大文件处理，默认通过 `.gitignore` 排除，后续如需同步特定权重应明确指定。
 - 准确率提升优先不改模型结构，先修复数据管线与训练策略：保证 RGB 分支和噪声分支空间对齐，保留高频残差信息，并减少会破坏生成痕迹的强增强。
+- Slurm 训练入口采用“先检查 GPU/CUDA，再自动准备数据划分，最后启动训练”的流程，避免作业占用 GPU 后因环境或目录问题静默失败。

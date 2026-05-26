@@ -23,15 +23,93 @@ set -euo pipefail
 # 切换到提交命令所在目录，确保相对路径和 Git 同步后的项目结构一致。
 cd "${SLURM_SUBMIT_DIR}"
 
+# 日志目录由 Slurm 输出配置引用，提交前确保目录存在。
+mkdir -p slurm/logs
+
+echo "===== Slurm 作业信息 ====="
+echo "作业 ID: ${SLURM_JOB_ID:-unknown}"
+echo "节点列表: ${SLURM_JOB_NODELIST:-unknown}"
+echo "提交目录: ${SLURM_SUBMIT_DIR}"
+echo "当前目录: $(pwd)"
+echo "开始时间: $(date)"
+
+# 打印 GPU 信息，便于确认作业确实运行在 GPU 节点上；如果集群未提供 nvidia-smi，
+# 这里不会中断训练，后续仍会通过 PyTorch CUDA 检查决定是否继续。
+if command -v nvidia-smi >/dev/null 2>&1; then
+  echo "===== GPU 信息 ====="
+  nvidia-smi
+else
+  echo "未找到 nvidia-smi，将继续使用 PyTorch 检查 CUDA 可用性。"
+fi
+
 # 训练脚本依赖项目本地虚拟环境。远端首次运行前应先创建 .venv，
 # 并安装 CUDA 12.x 兼容的 PyTorch，例如 cu126 版本，避免误装 CUDA 13.0 wheel。
 if [ ! -x ".venv/bin/python" ]; then
   echo "未找到 .venv/bin/python，请先在项目根目录创建并配置本地虚拟环境。"
+  echo "推荐安装命令示例："
+  echo "  .venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126"
+  echo "  .venv/bin/pip install numpy scipy opencv-python pillow scikit-learn matplotlib tqdm"
   exit 1
 fi
 
-# 日志目录由 Slurm 输出配置引用，提交前确保目录存在。
-mkdir -p slurm/logs
+# 训练输出路径和采样上限都允许在 sbatch 前通过环境变量覆盖，便于在不同服务器磁盘上复用。
+# 例如：
+#   IMAGE_MAX_SAMPLES_PER_CLASS=80000 sbatch slurm/train_image.slurm
+export IMAGE_DATA_ROOT="${IMAGE_DATA_ROOT:-data/image}"
+export IMAGE_SAVE_DIR="${IMAGE_SAVE_DIR:-models/weights}"
+export IMAGE_RESULT_DIR="${IMAGE_RESULT_DIR:-results}"
+export IMAGE_MAX_SAMPLES_PER_CLASS="${IMAGE_MAX_SAMPLES_PER_CLASS:-60000}"
+
+mkdir -p "${IMAGE_SAVE_DIR}" "${IMAGE_RESULT_DIR}"
+
+echo "===== Python 与 CUDA 检查 ====="
+".venv/bin/python" - <<'PY'
+import sys
+
+try:
+    import torch
+except Exception as exc:
+    raise SystemExit(
+        "无法导入 torch，请先安装 CUDA 12.x 兼容的 PyTorch，例如：\n"
+        "  .venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126\n"
+        f"原始错误：{exc}"
+    )
+
+print(f"Python: {sys.version.split()[0]}")
+print(f"PyTorch: {torch.__version__}")
+print(f"CUDA available: {torch.cuda.is_available()}")
+print(f"CUDA version from torch: {torch.version.cuda}")
+
+if not torch.cuda.is_available():
+    raise SystemExit("当前作业未检测到可用 CUDA，请确认 Slurm GPU 资源、驱动和 PyTorch wheel 是否匹配。")
+
+print(f"GPU count: {torch.cuda.device_count()}")
+print(f"GPU name: {torch.cuda.get_device_name(0)}")
+PY
+
+# 如果服务器刚从 GitHub 拉取，还没有生成训练脚本需要的 train/val/test 目录，
+# 则自动基于 content/ 原始数据创建软链接划分，节省磁盘空间和同步时间。
+if [ ! -d "${IMAGE_DATA_ROOT}/train/real" ] || \
+   [ ! -d "${IMAGE_DATA_ROOT}/train/fake" ] || \
+   [ ! -d "${IMAGE_DATA_ROOT}/val/real" ] || \
+   [ ! -d "${IMAGE_DATA_ROOT}/val/fake" ] || \
+   [ ! -d "${IMAGE_DATA_ROOT}/test/real" ] || \
+   [ ! -d "${IMAGE_DATA_ROOT}/test/fake" ]; then
+  echo "===== 准备训练数据划分 ====="
+  echo "未检测到完整的 ${IMAGE_DATA_ROOT}/train|val|test/real|fake 结构，将从 content/ 自动生成软链接划分。"
+  ".venv/bin/python" scripts/prepare_image_splits.py \
+    --content-root content \
+    --output-root "${IMAGE_DATA_ROOT}" \
+    --mode symlink
+fi
+
+echo "===== 训练配置 ====="
+echo "IMAGE_DATA_ROOT=${IMAGE_DATA_ROOT}"
+echo "IMAGE_SAVE_DIR=${IMAGE_SAVE_DIR}"
+echo "IMAGE_RESULT_DIR=${IMAGE_RESULT_DIR}"
+echo "IMAGE_MAX_SAMPLES_PER_CLASS=${IMAGE_MAX_SAMPLES_PER_CLASS}"
 
 # 使用项目本地解释器启动训练，避免依赖系统 Python 或 shell 激活状态。
-.venv/bin/python train_image.py
+".venv/bin/python" train_image.py
+
+echo "训练结束时间: $(date)"

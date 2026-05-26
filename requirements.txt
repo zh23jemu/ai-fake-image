@@ -1,0 +1,10 @@
+# 通用训练依赖；PyTorch/torchvision 请按服务器 CUDA 版本单独安装。
+# 推荐 GPU 安装示例：
+#   .venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+numpy
+scipy
+opencv-python
+pillow
+scikit-learn
+matplotlib
+tqdm
