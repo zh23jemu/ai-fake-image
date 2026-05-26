@@ -32,3 +32,6 @@ Thumbs.db
 *.log
 tmp/
 temp/
+
+# 由 scripts/prepare_image_splits.py 生成的训练划分目录，可由 content/ 原始数据重建
+data/image/

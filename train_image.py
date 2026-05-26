@@ -16,8 +16,17 @@ import json
 warnings.filterwarnings('ignore')
 
 # 导入自定义模块
-from datasets.image_dataset import ImageFakeDataset
-from models.image_cnn import DoubleBranchCNN
+try:
+    from datasets.image_dataset import ImageFakeDataset
+except ImportError:
+    # 当前仓库初版将数据集文件放在项目根目录；保留 fallback，便于服务器 clone 后直接运行。
+    from image_dataset import ImageFakeDataset
+
+try:
+    from models.image_cnn import DoubleBranchCNN
+except ImportError:
+    # 当前仓库初版将模型文件放在项目根目录；保留 fallback，避免仅因包目录未整理而训练失败。
+    from image_cnn import DoubleBranchCNN
 
 
 # ====================== 过拟合监控类 ======================
@@ -174,19 +183,19 @@ class OverfittingMonitor:
 # ====================== 核心配置 ======================
 class Config:
     # 数据路径
-    DATA_ROOT = r"E:\Python\AI_Detection\data\image"
+    DATA_ROOT = os.environ.get("IMAGE_DATA_ROOT", "data/image")
     # 模型保存路径
-    SAVE_DIR = r"E:\Python\AI_Detection\models\weights"
+    SAVE_DIR = os.environ.get("IMAGE_SAVE_DIR", "models/weights")
     os.makedirs(SAVE_DIR, exist_ok=True)
     
     # 结果保存路径
-    RESULT_DIR = r"E:\Python\AI_Detection\results"
+    RESULT_DIR = os.environ.get("IMAGE_RESULT_DIR", "results")
     os.makedirs(RESULT_DIR, exist_ok=True)
 
-    # 训练参数（激进优化配置）
+    # 训练参数。当前模型结构固定，优先通过数据质量、稳定增强和优化策略提升准确率。
     BATCH_SIZE = 16
     EPOCHS = 120  # 增加到120轮
-    LR = 3e-4  # 提高学习率
+    LR = 1e-4  # 降低学习率，配合噪声分支更稳定地学习细粒度伪造痕迹
     MIN_LR = 1e-6
     WEIGHT_DECAY = 1e-4  # 恢复标准正则化
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -194,8 +203,8 @@ class Config:
     # 梯度累积
     ACCUMULATION_STEPS = 4  # 有效batch=64
 
-    # 类别权重（更激进的惩罚）
-    CLASS_WEIGHTS = torch.tensor([1.0, 1.5]).to(DEVICE)  # 提高fake权重到1.5
+    # 类别权重。训练集已在 Dataset 内按 real/fake 平衡采样，继续偏置 fake 会降低整体 accuracy。
+    CLASS_WEIGHTS = torch.tensor([1.0, 1.0]).to(DEVICE)
 
     # 早停参数
     PATIENCE = 30  # 增加patience
@@ -205,11 +214,11 @@ class Config:
     USE_AUGMENTATION = True
     AUGMENT_PROB = 0.5
 
-    # 标签平滑
-    LABEL_SMOOTHING = 0.08  # 适中值
+    # 标签平滑。AI 生成检测依赖细微伪造痕迹，过强平滑会降低模型判别边界的锐度。
+    LABEL_SMOOTHING = 0.02
 
-    # 测试时增强
-    USE_TTA = True
+    # 测试时增强。AI 生成检测依赖细微频域/噪声痕迹，简单加噪 TTA 可能冲淡判别信号。
+    USE_TTA = False
     TTA_TIMES = 7  # 增加TTA次数
 
     # Warmup设置
@@ -231,6 +240,9 @@ class Config:
     
     # Focal Loss（处理难样本）
     USE_FOCAL_LOSS = False
+
+    # 训练集每类最多采样数量。设为0或负数表示不限制；默认多用一些数据以覆盖不同生成器。
+    MAX_SAMPLES_PER_CLASS = int(os.environ.get("IMAGE_MAX_SAMPLES_PER_CLASS", "60000"))
 
 # ====================== Focal Loss实现 ======================
 class FocalLoss(nn.Module):
@@ -351,7 +363,7 @@ def evaluate_model(model, dataloader, criterion, device, verbose=False, use_tta=
         roc_auc = 0.5
     
     # 计算混淆矩阵
-    cm = confusion_matrix(all_labels, all_preds)
+    cm = confusion_matrix(all_labels, all_preds, labels=[0, 1])
 
     if verbose:
         print(f"  评估详情:")
@@ -412,7 +424,7 @@ def train_image_model():
         root=cfg.DATA_ROOT, 
         split="train", 
         is_train=True,
-        max_samples=15000  # 限制训练集每类最多15000张
+        max_samples=cfg.MAX_SAMPLES_PER_CLASS  # 限制训练集每类最多样本数，便于按显存和训练时间调整
     )
     val_dataset = ImageFakeDataset(root=cfg.DATA_ROOT, split="val", is_train=False)
     test_dataset = ImageFakeDataset(root=cfg.DATA_ROOT, split="test", is_train=False)
@@ -533,6 +545,7 @@ def train_image_model():
         monitor.history['learning_rate'].append(current_lr)
 
         pbar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{cfg.EPOCHS}")
+        optimizer.zero_grad(set_to_none=True)
         for batch_idx, (imgs, labels) in enumerate(pbar):
             # 优化：直接使用.cuda(non_blocking=True)加速传输
             imgs, labels = imgs.to(cfg.DEVICE, non_blocking=True), labels.to(cfg.DEVICE, non_blocking=True)
@@ -546,7 +559,12 @@ def train_image_model():
 
                 scaler.scale(loss).backward()
 
-                if (batch_idx + 1) % cfg.ACCUMULATION_STEPS == 0:
+                is_update_step = (
+                    (batch_idx + 1) % cfg.ACCUMULATION_STEPS == 0
+                    or (batch_idx + 1) == len(train_loader)
+                )
+
+                if is_update_step:
                     scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.GRAD_CLIP)
                     scaler.step(optimizer)
@@ -558,7 +576,12 @@ def train_image_model():
                 loss = loss / cfg.ACCUMULATION_STEPS
                 loss.backward()
 
-                if (batch_idx + 1) % cfg.ACCUMULATION_STEPS == 0:
+                is_update_step = (
+                    (batch_idx + 1) % cfg.ACCUMULATION_STEPS == 0
+                    or (batch_idx + 1) == len(train_loader)
+                )
+
+                if is_update_step:
                     torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=cfg.GRAD_CLIP)
                     optimizer.step()
                     optimizer.zero_grad(set_to_none=True)
@@ -642,6 +665,7 @@ def train_image_model():
     print(" 开始测试最佳模型...")
 
     # 加载最佳模型
+    checkpoint = None
     if os.path.exists(os.path.join(cfg.SAVE_DIR, "image_best.pth")):
         checkpoint = torch.load(
             os.path.join(cfg.SAVE_DIR, "image_best.pth"),
@@ -726,7 +750,7 @@ def train_image_model():
         'best_epoch': best_epoch,
         'val_results': {
             'f1': float(best_f1),
-            'accuracy': float(checkpoint['val_results']['accuracy'])
+            'accuracy': float(checkpoint['val_results']['accuracy']) if checkpoint else None
         },
         'test_results': {k: float(v) if isinstance(v, (np.number, float)) else v
                          for k, v in test_results.items()

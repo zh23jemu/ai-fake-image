@@ -30,15 +30,15 @@
 
 ## TODO
 
-- 补齐或整理项目包结构，使 `train_image.py` 中的 `datasets.image_dataset`、`models.image_cnn` 导入路径与仓库实际文件位置一致。
-- 明确数据目录结构：当前数据在 `content/fake_images/` 与 `content/real_images/`，而训练代码期望 `DATA_ROOT/train|val|test/real|fake`。
-- 将硬编码的 Windows 路径改为可配置路径，便于本地和服务器复用。
+- 进一步整理项目包结构；当前 `train_image.py` 已增加根目录 fallback 导入，后续可再正式重构为 `datasets/`、`models/` 包目录。
+- 使用 `scripts/prepare_image_splits.py` 生成训练代码期望的 `DATA_ROOT/train|val|test/real|fake` 数据结构。
+- 继续清理兼容性细节；`train_image.py` 已改为项目内默认路径并支持环境变量覆盖，`image_preprocess.py` 的自测示例路径后续仍可整理。
 - 补充依赖文件，例如 `requirements.txt` 或 `pyproject.toml`。
 - 准备 Slurm 提交脚本，并根据服务器实际 GPU、内存和数据路径调整资源参数。
 
 ## Current Status
 
-仓库当前已完成 Git 初版快照提交，并已推送到 GitHub public 仓库 `https://github.com/zh23jemu/ai-fake-image`。远端 `master` 使用分批提交历史承载完整文件树，包含模型、数据集、预处理、训练脚本、大量图片数据、项目维护记录、忽略规则和 Slurm 训练入口。后续重点是把当前快照整理成可在远端服务器直接运行的训练工程。
+仓库当前已完成 Git 初版快照提交，并已推送到 GitHub public 仓库 `https://github.com/zh23jemu/ai-fake-image`。远端 `master` 使用分批提交历史承载完整文件树，包含模型、数据集、预处理、训练脚本、大量图片数据、项目维护记录、忽略规则和 Slurm 训练入口。当前正在不改变既定模型结构的前提下提升 AI 生成图像检测准确率，重点修复数据增强、噪声特征、训练配置和数据划分流程。
 
 ## Recent Changes
 
@@ -47,6 +47,10 @@
 - 创建 `slurm/train_image.slurm`，为远端 GPU 集群训练准备默认提交入口。
 - 初始化 Git 仓库并完成初版提交，提交哈希为 `1e910bff8d`。
 - 创建 GitHub public 仓库 `zh23jemu/ai-fake-image`，并通过“代码配置先推、数据目录分批推”的方式完成完整文件树上传；远端最新提交为 `bc24e2f9`。
+- 修复双分支输入增强错位问题：原图和噪声图现在使用同一组随机几何增强参数，避免 6 通道特征空间不对齐。
+- 调整噪声特征提取方式，保留高频残差幅值信息，避免负残差被直接清零。
+- 调整训练配置：默认使用项目内 `data/image`、`models/weights`、`results` 路径，降低学习率、减弱标签平滑、取消 fake 类额外权重、默认关闭加噪 TTA，并支持通过环境变量覆盖路径。
+- 新增 `scripts/prepare_image_splits.py`，可将 `content/` 原始图像整理为训练脚本需要的 `train/val/test/real/fake` 结构。
 
 ## Next TODO
 
@@ -54,13 +58,13 @@
 - 根据服务器环境创建 `.venv` 并安装 PyTorch CUDA 12.x 兼容依赖。
 - 补充依赖声明文件，并验证远端服务器上的最小导入与训练启动流程。
 - 远端服务器可从 GitHub public 仓库拉取当前完整快照，但首次 clone/pull 仍会因为图片数据量较大而耗时较长。
+- 在服务器上先运行数据划分脚本，再使用新的训练配置重新训练，重点观察验证集 accuracy/F1 是否从 60% 段提升到 80% 目标附近。
 
 ## Open Issues
 
-- `image_dataset.py` 导入了 `preprocess.image_preprocess`，但当前仓库中没有 `preprocess/` 包目录。
-- `train_image.py` 导入了 `datasets.image_dataset` 和 `models.image_cnn`，但当前仓库中没有 `datasets/` 和 `models/` 包目录。
-- `train_image.py` 与 `image_preprocess.py` 中存在硬编码路径 `E:\Python\AI_Detection\...`，远端服务器无法直接使用。
-- 当前 `content/` 数据集尚未整理为训练代码期望的 `train/val/test` 分割结构。
+- 当前尚未正式重构为 `datasets/` 和 `models/` 包目录，但 `train_image.py` 已增加根目录 fallback 导入，可在当前仓库结构下直接运行。
+- `train_image.py` 已改为项目内默认路径，并支持通过 `IMAGE_DATA_ROOT`、`IMAGE_SAVE_DIR`、`IMAGE_RESULT_DIR` 覆盖；`image_preprocess.py` 中的自测示例路径仍待后续整理。
+- 当前 `content/` 数据集本身仍是原始结构，需要运行 `scripts/prepare_image_splits.py` 生成训练用划分目录。
 - `content/progress.json` 记录的部分计数与当前文件统计存在 1 张左右差异，需要后续核对是否是进度记录偏移或数据缺失。
 
 ## Architecture Decisions
@@ -68,3 +72,4 @@
 - 初版提交先保留当前代码和数据原貌，不在提交前进行目录重构，避免影响慢速远端同步时的可追溯性。
 - 数据集目录 `content/` 暂不加入忽略规则，因为用户需要通过 Git 将项目快照同步到远端服务器。
 - 模型权重和训练检查点按可膨胀的大文件处理，默认通过 `.gitignore` 排除，后续如需同步特定权重应明确指定。
+- 准确率提升优先不改模型结构，先修复数据管线与训练策略：保证 RGB 分支和噪声分支空间对齐，保留高频残差信息，并减少会破坏生成痕迹的强增强。
