@@ -46,9 +46,8 @@ fi
 # 并安装 CUDA 12.x 兼容的 PyTorch，例如 cu126 版本，避免误装 CUDA 13.0 wheel。
 if [ ! -x ".venv/bin/python" ]; then
   echo "未找到 .venv/bin/python，请先在项目根目录创建并配置本地虚拟环境。"
-  echo "推荐安装命令示例："
-  echo "  .venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126"
-  echo "  .venv/bin/pip install numpy scipy opencv-python pillow scikit-learn matplotlib tqdm"
+  echo "推荐先在服务器项目根目录运行："
+  echo "  bash scripts/setup_server_env.sh"
   exit 1
 fi
 

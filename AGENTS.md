@@ -18,6 +18,7 @@
 - `image_dataset.py`：定义 `ImageFakeDataset` 数据集类。训练集会按 real/fake 做类别平衡，并在读取图像后额外提取噪声特征，与原图特征拼接为 6 通道张量。
 - `image_preprocess.py`：提供图像缩放、归一化、噪声特征提取和兼容旧流程的预处理函数。
 - `train_image.py`：包含训练配置、过拟合监控、评估、阈值优化、训练循环、最佳模型保存和测试评估逻辑。
+- `scripts/setup_server_env.sh`：用于服务器首次运行时创建项目本地 `.venv`，安装 CUDA 12.x 兼容 PyTorch/torchvision 与通用训练依赖，并做最小导入检查。
 - `content/`：当前保存原始数据快照，包括 `fake_images/`、`real_images/` 和 `progress.json`。
 
 ## 开发规范
@@ -53,11 +54,12 @@
 - 新增 `scripts/prepare_image_splits.py`，可将 `content/` 原始图像整理为训练脚本需要的 `train/val/test/real/fake` 结构。
 - 增强 `slurm/train_image.slurm`：保留 `aws` GPU 分区、`gpo-ifv7xx` 账号和 `normal` QOS，增加 GPU/nvidia-smi 诊断、PyTorch CUDA 可用性检查、训练路径环境变量覆盖、输出目录创建，以及缺少 `data/image` 时自动生成软链接数据划分。
 - 新增 `requirements.txt`，记录 `numpy`、`scipy`、`opencv-python`、`pillow`、`scikit-learn`、`matplotlib`、`tqdm` 等通用依赖，并在注释中说明 GPU 版 PyTorch 需要使用 CUDA 12.x 兼容 wheel 单独安装。
+- 新增 `scripts/setup_server_env.sh`，便于服务器尚未创建 `.venv` 时一键初始化虚拟环境和训练依赖；`slurm/train_image.slurm` 在缺少 `.venv` 时会提示先运行该脚本。
 
 ## Next TODO
 
 - 进一步整理项目运行入口，优先修复导入路径和数据目录结构不一致问题。
-- 根据服务器环境创建 `.venv` 并安装 PyTorch CUDA 12.x 兼容依赖。
+- 服务器首次拉取后先运行 `bash scripts/setup_server_env.sh` 创建 `.venv` 并安装 PyTorch CUDA 12.x 兼容依赖。
 - 验证远端服务器上的最小导入、CUDA 可用性和 Slurm 训练启动流程。
 - 远端服务器可从 GitHub public 仓库拉取当前完整快照，但首次 clone/pull 仍会因为图片数据量较大而耗时较长。
 - 使用新的 Slurm 脚本重新训练，重点观察验证集 accuracy/F1 是否从 60% 段提升到 80% 目标附近，并保存 `results/` 下曲线和指标用于报告。
