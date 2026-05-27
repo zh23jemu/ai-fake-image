@@ -59,6 +59,7 @@
 - 为 `ImageFakeDataset` 增加 split manifest 缓存和扫描进度日志，减少服务器重复扫描 `data/image` 下大量软链接导致的启动等待，并让 Slurm 日志能看到数据集加载进度。
 - 更新 `scripts/prepare_image_splits.py`，在创建/复用训练软链接时直接写出 split manifest；Slurm 在 manifest 缺失时会自动重新运行数据准备脚本，避免训练阶段递归扫描 `data/image` 导致 I/O 等待。
 - `scripts/prepare_image_splits.py` 优先用 `git ls-files` 从 Git 索引收集 `content/` 图片；当 `data/image` 已存在但 manifest 缺失时，Slurm 使用 `--manifest-only` 只生成清单，不再逐个检查软链接。
+- 移除 `ReduceLROnPlateau(verbose=True)` 过时参数，兼容服务器当前 PyTorch 2.12 调度器签名。
 
 ## Next TODO
 

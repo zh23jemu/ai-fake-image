@@ -495,8 +495,7 @@ def train_image_model():
         mode='min',
         factor=0.5,
         patience=5,
-        min_lr=cfg.MIN_LR,
-        verbose=True
+        min_lr=cfg.MIN_LR
     )
     
     cosine_scheduler = optim.lr_scheduler.CosineAnnealingLR(
