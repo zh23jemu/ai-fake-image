@@ -269,15 +269,50 @@ class FocalLoss(nn.Module):
 
 
 # ====================== 评估函数 ======================
-def find_optimal_threshold(y_true, y_probs):
-    """寻找最优分类阈值以最大化F1或Precision"""
-    from sklearn.metrics import precision_score, recall_score, f1_score
+def find_optimal_threshold(y_true, y_probs, target_metric="f1"):
+    """
+    搜索分类阈值。
+
+    Args:
+        y_true: 真实标签。
+        y_probs: fake 类预测概率。
+        target_metric: `f1` 时沿用原来的高 precision + F1 逻辑；`accuracy` 时直接选择
+            验证集 accuracy 最高的阈值，适合学校明确要求 Val_Acc 的场景。
+
+    Returns:
+        (best_threshold, best_precision, best_f1): 最优阈值及对应 precision/F1。
+    """
+    from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
     
     best_threshold = 0.5
     best_f1 = 0.0
     best_precision = 0.0
     
     thresholds = np.arange(0.3, 0.8, 0.01)
+
+    if target_metric == "accuracy":
+        best_accuracy = -1.0
+        best_recall = 0.0
+        for threshold in thresholds:
+            y_pred = (y_probs >= threshold).astype(int)
+            accuracy = accuracy_score(y_true, y_pred)
+            precision = precision_score(y_true, y_pred, zero_division=0)
+            recall = recall_score(y_true, y_pred, zero_division=0)
+            f1 = f1_score(y_true, y_pred, zero_division=0)
+
+            # accuracy 相同时保留 F1 更高的阈值，避免阈值过度偏向某一类。
+            if accuracy > best_accuracy or (accuracy == best_accuracy and f1 > best_f1):
+                best_accuracy = accuracy
+                best_precision = precision
+                best_recall = recall
+                best_f1 = f1
+                best_threshold = threshold
+
+        print(
+            f"   Accuracy阈值搜索: threshold={best_threshold:.2f}, "
+            f"Acc={best_accuracy:.4f}, P={best_precision:.4f}, R={best_recall:.4f}, F1={best_f1:.4f}"
+        )
+        return best_threshold, best_precision, best_f1
     
     for threshold in thresholds:
         y_pred = (y_probs >= threshold).astype(int)
@@ -514,6 +549,7 @@ def train_image_model():
     scaler = torch.cuda.amp.GradScaler() if cfg.USE_AMP and torch.cuda.is_available() else None
 
     best_f1 = 0.0
+    best_acc = 0.0
     patience = 0
     best_epoch = 0
 
@@ -631,8 +667,11 @@ def train_image_model():
             for alert in alerts:
                 print(f"  {alert}")
 
+        improved_f1 = val_results['f1'] > best_f1 + cfg.MIN_DELTA
+        improved_acc = val_results['accuracy'] > best_acc + cfg.MIN_DELTA
+
         # 保存最佳模型（基于F1）
-        if val_results['f1'] > best_f1 + cfg.MIN_DELTA:
+        if improved_f1:
             best_f1 = val_results['f1']
             patience = 0
             best_epoch = epoch + 1
@@ -653,9 +692,25 @@ def train_image_model():
             patience += 1
             print(f"⚠️ 未改善：{patience}/{cfg.PATIENCE} | 最佳F1={best_f1:.4f} (Epoch {best_epoch})")
 
-            if patience >= cfg.PATIENCE:
-                print("🛑 早停触发，训练结束")
-                break
+        # 额外保存验证准确率最高的模型，便于学校要求 Val_Acc 时直接选用。
+        if improved_acc:
+            best_acc = val_results['accuracy']
+            acc_checkpoint = {
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict() if scheduler else None,
+                'best_accuracy': best_acc,
+                'val_results': val_results,
+                'monitor_history': dict(monitor.history),
+                'config': {k: v for k, v in cfg.__dict__.items() if not k.startswith('_')}
+            }
+            torch.save(acc_checkpoint, os.path.join(cfg.SAVE_DIR, "image_best_acc.pth"))
+            print(f"✅ 最高Val_Acc模型已保存 | Acc={best_acc:.4f}, F1={val_results['f1']:.4f} (Epoch {epoch + 1})")
+
+        if patience >= cfg.PATIENCE:
+            print("🛑 早停触发，训练结束")
+            break
 
     # 绘制训练曲线
     print("\n📈 生成训练曲线...")

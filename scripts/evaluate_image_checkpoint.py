@@ -20,12 +20,17 @@ def main():
     单独评估已经训练好的最佳 checkpoint。
 
     训练作业如果在最终测试阶段因为 PyTorch checkpoint 兼容性报错，可以直接运行
-    本脚本复用 `models/weights/image_best.pth`，无需重新训练。checkpoint 是本项目
-    训练脚本生成的可信本地文件，因此加载时显式使用 weights_only=False。
+    本脚本默认优先复用面向 Val_Acc 保存的 `models/weights/image_best_acc.pth`；
+    如该文件不存在，可通过 IMAGE_CHECKPOINT 指向 `image_best.pth`。checkpoint 是
+    本项目训练脚本生成的可信本地文件，因此加载时显式使用 weights_only=False。
     """
     cfg = Config()
-    checkpoint_path = Path(os.environ.get("IMAGE_CHECKPOINT", Path(cfg.SAVE_DIR) / "image_best.pth"))
+    default_checkpoint = Path(cfg.SAVE_DIR) / "image_best_acc.pth"
+    if not default_checkpoint.exists():
+        default_checkpoint = Path(cfg.SAVE_DIR) / "image_best.pth"
+    checkpoint_path = Path(os.environ.get("IMAGE_CHECKPOINT", default_checkpoint))
     output_path = Path(os.environ.get("IMAGE_EVAL_OUTPUT", Path(cfg.SAVE_DIR) / "eval_results.json"))
+    target_metric = os.environ.get("IMAGE_THRESHOLD_METRIC", "accuracy")
 
     if not checkpoint_path.exists():
         raise FileNotFoundError(f"未找到 checkpoint: {checkpoint_path}")
@@ -73,7 +78,11 @@ def main():
     val_results = evaluate_model(model, val_loader, criterion, cfg.DEVICE, verbose=False, threshold=0.5)
     val_probs = np.array(val_results["probabilities"])
     val_labels = np.array(val_results["labels"])
-    threshold, opt_precision, opt_f1 = find_optimal_threshold(val_labels, val_probs)
+    threshold, opt_precision, opt_f1 = find_optimal_threshold(
+        val_labels,
+        val_probs,
+        target_metric=target_metric,
+    )
     print(f"✅ 最优阈值: {threshold:.2f} | Precision={opt_precision:.4f} | F1={opt_f1:.4f}")
 
     print("📊 评估测试集...")
@@ -101,6 +110,8 @@ def main():
                 "checkpoint": str(checkpoint_path),
                 "checkpoint_epoch": int(checkpoint.get("epoch", -1)) + 1,
                 "best_val_f1": float(checkpoint.get("best_f1", 0.0)),
+                "best_val_accuracy": float(checkpoint.get("best_accuracy", checkpoint.get("val_results", {}).get("accuracy", 0.0))),
+                "threshold_metric": target_metric,
                 "threshold": float(threshold),
                 "threshold_precision": float(opt_precision),
                 "threshold_f1": float(opt_f1),

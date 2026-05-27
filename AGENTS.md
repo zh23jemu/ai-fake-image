@@ -63,6 +63,7 @@
 - 将 `ImageFakeDataset` 在线噪声特征提取从 SciPy `ndimage` 实现切换为 OpenCV `GaussianBlur/filter2D`，保留高频残差幅值归一化语义，减少 DataLoader CPU 预处理瓶颈。
 - 同步全局 Slurm 分区策略：GPU 默认分区从 `aws` 改为 `gpu`，仅在短时任务或用户明确指定时使用 `gpuHz`，避免 `aws` 额外费用。
 - 修复 PyTorch 2.6+ checkpoint 加载默认 `weights_only=True` 导致的最终测试失败；训练脚本加载本项目可信 checkpoint 时显式设置 `weights_only=False`，并新增 `scripts/evaluate_image_checkpoint.py` 复用已保存最佳模型单独评估。
+- 为学校要求的 Val_Acc 指标补充准确率导向流程：训练时额外保存 `models/weights/image_best_acc.pth`，评估脚本默认加载该 checkpoint，并用验证集 accuracy 搜索分类阈值。
 
 ## Next TODO
 
@@ -77,6 +78,7 @@
 - 若 `data/image` 已经存在但 manifest 缺失，应优先走 `scripts/prepare_image_splits.py --manifest-only`，避免慢速文件系统上的软链接存在性检查。
 - 若 GPU 利用率仍呈现间歇性峰值和长时间 0%，继续关注在线图片解码、增强和噪声特征提取；必要时考虑预生成噪声特征缓存。
 - 如果训练已保存 `models/weights/image_best.pth` 但最终测试阶段失败，可直接运行 `.venv/bin/python scripts/evaluate_image_checkpoint.py` 生成测试结果，无需重新训练。
+- 下一轮冲击 80% Val_Acc 时优先使用更多训练样本和更长 patience，例如 `IMAGE_MAX_SAMPLES_PER_CLASS=60000 IMAGE_PATIENCE=20 sbatch --partition=gpu slurm/train_image.slurm`，并关注 `image_best_acc.pth`。
 
 ## Open Issues
 
