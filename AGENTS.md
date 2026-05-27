@@ -55,6 +55,7 @@
 - 增强 `slurm/train_image.slurm`：保留 `aws` GPU 分区、`gpo-ifv7xx` 账号和 `normal` QOS，增加 GPU/nvidia-smi 诊断、PyTorch CUDA 可用性检查、训练路径环境变量覆盖、输出目录创建，以及缺少 `data/image` 时自动生成软链接数据划分。
 - 新增 `requirements.txt`，记录 `numpy`、`scipy`、`opencv-python`、`pillow`、`scikit-learn`、`matplotlib`、`tqdm` 等通用依赖，并在注释中说明 GPU 版 PyTorch 需要使用 CUDA 12.x 兼容 wheel 单独安装。
 - 新增 `scripts/setup_server_env.sh`，便于服务器尚未创建 `.venv` 时一键初始化虚拟环境和训练依赖；`slurm/train_image.slurm` 在缺少 `.venv` 时会提示先运行该脚本。
+- 为服务器提速和排障补充训练环境变量：`IMAGE_BATCH_SIZE`、`IMAGE_EPOCHS`、`IMAGE_ACCUMULATION_STEPS`、`IMAGE_NUM_WORKERS`、`IMAGE_PREFETCH_FACTOR`、`IMAGE_PATIENCE`、`IMAGE_WARMUP_EPOCHS`；Slurm 默认改为 L40S 更合适的 batch/workers/epoch，并使用 `python -u` 实时刷新日志。
 
 ## Next TODO
 
@@ -63,6 +64,7 @@
 - 验证远端服务器上的最小导入、CUDA 可用性和 Slurm 训练启动流程。
 - 远端服务器可从 GitHub public 仓库拉取当前完整快照，但首次 clone/pull 仍会因为图片数据量较大而耗时较长。
 - 使用新的 Slurm 脚本重新训练，重点观察验证集 accuracy/F1 是否从 60% 段提升到 80% 目标附近，并保存 `results/` 下曲线和指标用于报告。
+- 如果 `nvidia-smi dmon` 显示 GPU 利用率长期为 0%，优先检查 Slurm 日志是否进入 `Epoch`；若停在训练配置后，重点排查 DataLoader 首批样本加载、软链接数据路径和 CPU 预处理瓶颈。
 
 ## Open Issues
 

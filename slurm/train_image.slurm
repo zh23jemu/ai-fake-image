@@ -53,11 +53,21 @@ fi
 
 # 训练输出路径和采样上限都允许在 sbatch 前通过环境变量覆盖，便于在不同服务器磁盘上复用。
 # 例如：
-#   IMAGE_MAX_SAMPLES_PER_CLASS=80000 sbatch slurm/train_image.slurm
+#   IMAGE_BATCH_SIZE=64 IMAGE_EPOCHS=60 IMAGE_MAX_SAMPLES_PER_CLASS=30000 sbatch slurm/train_image.slurm
 export IMAGE_DATA_ROOT="${IMAGE_DATA_ROOT:-data/image}"
 export IMAGE_SAVE_DIR="${IMAGE_SAVE_DIR:-models/weights}"
 export IMAGE_RESULT_DIR="${IMAGE_RESULT_DIR:-results}"
-export IMAGE_MAX_SAMPLES_PER_CLASS="${IMAGE_MAX_SAMPLES_PER_CLASS:-60000}"
+
+# L40S 显存较大，默认使用比笔记本 GPU 更高的 batch 和 worker 数来提高吞吐。
+# 如果遇到显存不足，可在提交时降低 IMAGE_BATCH_SIZE；如果 GPU 利用率低，可继续提高 IMAGE_NUM_WORKERS。
+export IMAGE_BATCH_SIZE="${IMAGE_BATCH_SIZE:-64}"
+export IMAGE_ACCUMULATION_STEPS="${IMAGE_ACCUMULATION_STEPS:-1}"
+export IMAGE_EPOCHS="${IMAGE_EPOCHS:-60}"
+export IMAGE_PATIENCE="${IMAGE_PATIENCE:-12}"
+export IMAGE_WARMUP_EPOCHS="${IMAGE_WARMUP_EPOCHS:-4}"
+export IMAGE_NUM_WORKERS="${IMAGE_NUM_WORKERS:-8}"
+export IMAGE_PREFETCH_FACTOR="${IMAGE_PREFETCH_FACTOR:-4}"
+export IMAGE_MAX_SAMPLES_PER_CLASS="${IMAGE_MAX_SAMPLES_PER_CLASS:-30000}"
 
 mkdir -p "${IMAGE_SAVE_DIR}" "${IMAGE_RESULT_DIR}"
 
@@ -106,9 +116,16 @@ echo "===== 训练配置 ====="
 echo "IMAGE_DATA_ROOT=${IMAGE_DATA_ROOT}"
 echo "IMAGE_SAVE_DIR=${IMAGE_SAVE_DIR}"
 echo "IMAGE_RESULT_DIR=${IMAGE_RESULT_DIR}"
+echo "IMAGE_BATCH_SIZE=${IMAGE_BATCH_SIZE}"
+echo "IMAGE_ACCUMULATION_STEPS=${IMAGE_ACCUMULATION_STEPS}"
+echo "IMAGE_EPOCHS=${IMAGE_EPOCHS}"
+echo "IMAGE_PATIENCE=${IMAGE_PATIENCE}"
+echo "IMAGE_WARMUP_EPOCHS=${IMAGE_WARMUP_EPOCHS}"
+echo "IMAGE_NUM_WORKERS=${IMAGE_NUM_WORKERS}"
+echo "IMAGE_PREFETCH_FACTOR=${IMAGE_PREFETCH_FACTOR}"
 echo "IMAGE_MAX_SAMPLES_PER_CLASS=${IMAGE_MAX_SAMPLES_PER_CLASS}"
 
-# 使用项目本地解释器启动训练，避免依赖系统 Python 或 shell 激活状态。
-".venv/bin/python" train_image.py
+# 使用 -u 关闭 Python 标准输出缓冲，确保 tail -f Slurm 日志时能实时看到数据集加载和 epoch 进度。
+".venv/bin/python" -u train_image.py
 
 echo "训练结束时间: $(date)"

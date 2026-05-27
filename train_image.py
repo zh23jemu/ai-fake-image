@@ -193,21 +193,23 @@ class Config:
     os.makedirs(RESULT_DIR, exist_ok=True)
 
     # 训练参数。当前模型结构固定，优先通过数据质量、稳定增强和优化策略提升准确率。
-    BATCH_SIZE = 16
-    EPOCHS = 120  # 增加到120轮
+    # 这些参数支持环境变量覆盖，便于在 Slurm 服务器上按 GPU 显存和排队时间快速调速，
+    # 例如：IMAGE_BATCH_SIZE=64 IMAGE_EPOCHS=60 sbatch slurm/train_image.slurm。
+    BATCH_SIZE = int(os.environ.get("IMAGE_BATCH_SIZE", "16"))
+    EPOCHS = int(os.environ.get("IMAGE_EPOCHS", "120"))
     LR = 1e-4  # 降低学习率，配合噪声分支更稳定地学习细粒度伪造痕迹
     MIN_LR = 1e-6
     WEIGHT_DECAY = 1e-4  # 恢复标准正则化
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 梯度累积
-    ACCUMULATION_STEPS = 4  # 有效batch=64
+    ACCUMULATION_STEPS = int(os.environ.get("IMAGE_ACCUMULATION_STEPS", "4"))  # 有效batch=BATCH_SIZE×ACCUMULATION_STEPS
 
     # 类别权重。训练集已在 Dataset 内按 real/fake 平衡采样，继续偏置 fake 会降低整体 accuracy。
     CLASS_WEIGHTS = torch.tensor([1.0, 1.0]).to(DEVICE)
 
     # 早停参数
-    PATIENCE = 30  # 增加patience
+    PATIENCE = int(os.environ.get("IMAGE_PATIENCE", "30"))
     MIN_DELTA = 0.001
 
     # 数据增强
@@ -222,7 +224,7 @@ class Config:
     TTA_TIMES = 7  # 增加TTA次数
 
     # Warmup设置
-    WARMUP_EPOCHS = 8  # 增加warmup
+    WARMUP_EPOCHS = int(os.environ.get("IMAGE_WARMUP_EPOCHS", "8"))
 
     # 混合精度训练
     USE_AMP = True
@@ -231,9 +233,9 @@ class Config:
     GRAD_CLIP = 1.0
 
     # 数据加载优化
-    NUM_WORKERS = 2
+    NUM_WORKERS = int(os.environ.get("IMAGE_NUM_WORKERS", "2"))
     PIN_MEMORY = True
-    PREFETCH_FACTOR = 2
+    PREFETCH_FACTOR = int(os.environ.get("IMAGE_PREFETCH_FACTOR", "2"))
 
     # 最优阈值搜索
     OPTIMIZE_THRESHOLD = True
