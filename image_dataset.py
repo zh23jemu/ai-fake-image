@@ -1,4 +1,5 @@
 import os
+import json
 import random
 import torch
 from torch.utils.data import Dataset
@@ -7,6 +8,91 @@ from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 from PIL import Image
 import numpy as np
+
+
+IMAGE_EXTENSIONS = (".jpg", ".png", ".jpeg", ".bmp")
+
+
+def _manifest_path(root, split):
+    """返回当前数据划分对应的文件清单缓存路径。"""
+    return os.path.join(root, f".{split}_manifest.json")
+
+
+def _dir_mtime(path):
+    """
+    获取目录本身的修改时间，用于判断 manifest 是否明显过期。
+
+    这里不递归统计所有图片，否则会抵消 manifest 的加速意义；训练数据通常由
+    prepare_image_splits.py 一次性生成，split/real 与 split/fake 目录本身的 mtime
+    足以覆盖常见的重新划分场景。
+    """
+    return os.path.getmtime(path) if os.path.exists(path) else 0
+
+
+def _scan_image_files(directory, label):
+    """
+    递归扫描图像文件，并在大目录上定期输出进度。
+
+    Slurm 日志如果长时间没有输出，很难判断作业是卡住还是正在扫描大量软链接；
+    因此这里每扫描到一定数量图片就刷新一次进度，便于远端排障。
+    """
+    if not os.path.exists(directory):
+        return []
+
+    files = []
+    for current_dir, _, filenames in os.walk(directory):
+        for filename in filenames:
+            if filename.lower().endswith(IMAGE_EXTENSIONS):
+                files.append(os.path.join(current_dir, filename))
+                if len(files) % 50000 == 0:
+                    print(f"   {label}: 已扫描 {len(files)} 张图像...", flush=True)
+    print(f"   {label}: 扫描完成，共 {len(files)} 张图像", flush=True)
+    return files
+
+
+def _load_or_build_manifest(root, split, real_dir, fake_dir):
+    """
+    加载或生成当前 split 的图像路径清单。
+
+    manifest 只保存路径列表，不保存图像内容。第一次启动需要扫描目录；后续启动如果
+    split/real 与 split/fake 目录修改时间未变化，就直接读取 JSON，避免每次 Slurm
+    作业都在几十万张软链接上重复 os.walk。
+    """
+    manifest = _manifest_path(root, split)
+    current_meta = {
+        "real_dir": os.path.abspath(real_dir),
+        "fake_dir": os.path.abspath(fake_dir),
+        "real_mtime": _dir_mtime(real_dir),
+        "fake_mtime": _dir_mtime(fake_dir),
+    }
+
+    if os.path.exists(manifest):
+        try:
+            with open(manifest, "r", encoding="utf-8") as f:
+                cached = json.load(f)
+            if cached.get("meta") == current_meta:
+                real = cached.get("real", [])
+                fake = cached.get("fake", [])
+                print(
+                    f"✅ {split} 集使用缓存清单 | real={len(real)}, fake={len(fake)}",
+                    flush=True,
+                )
+                return real, fake
+        except Exception as exc:
+            print(f"⚠️  {split} 集 manifest 读取失败，将重新扫描：{exc}", flush=True)
+
+    print(f"🔎 正在扫描 {split} 集图像文件...", flush=True)
+    real = _scan_image_files(real_dir, f"{split}/real")
+    fake = _scan_image_files(fake_dir, f"{split}/fake")
+
+    try:
+        with open(manifest, "w", encoding="utf-8") as f:
+            json.dump({"meta": current_meta, "real": real, "fake": fake}, f)
+        print(f"✅ {split} 集 manifest 已保存: {manifest}", flush=True)
+    except Exception as exc:
+        print(f"⚠️  {split} 集 manifest 保存失败，将不影响本次训练：{exc}", flush=True)
+
+    return real, fake
 
 random.seed(42)
 
@@ -100,19 +186,7 @@ class ImageFakeDataset(Dataset):
         real_dir = os.path.join(base, "real")
         fake_dir = os.path.join(base, "fake")
 
-        def get_files(d):
-            if not os.path.exists(d):
-                return []
-
-            files = []
-            for current_dir, _, filenames in os.walk(d):
-                for f in filenames:
-                    if f.lower().endswith((".jpg", ".png", ".jpeg", ".bmp")):
-                        files.append(os.path.join(current_dir, f))
-            return files
-
-        self.real = get_files(real_dir)
-        self.fake = get_files(fake_dir)
+        self.real, self.fake = _load_or_build_manifest(root, split, real_dir, fake_dir)
 
         # 优化：训练集强制类别平衡，验证/测试集保留全部数据
         if split == "train":
@@ -122,16 +196,16 @@ class ImageFakeDataset(Dataset):
             # 如果指定了max_samples，则进一步限制数据量
             if max_samples is not None and max_samples > 0:
                 n = min(n, max_samples)
-                print(f"ℹ️  {split} 集数据量限制为每类 {max_samples} 张")
+                print(f"ℹ️  {split} 集数据量限制为每类 {max_samples} 张", flush=True)
             
             self.real = random.sample(self.real, n)
             self.fake = random.sample(self.fake, n)
-            print(f"✅ {split} 集平衡完成 | real={n}, fake={n}, 总计={2*n}")
+            print(f"✅ {split} 集平衡完成 | real={n}, fake={n}, 总计={2*n}", flush=True)
         else:
             # 验证和测试集：使用全部数据，不进行采样
             n_real = len(self.real)
             n_fake = len(self.fake)
-            print(f"✅ {split} 集（完整数据）| real={n_real}, fake={n_fake}, 总计={n_real + n_fake}")
+            print(f"✅ {split} 集（完整数据）| real={n_real}, fake={n_fake}, 总计={n_real + n_fake}", flush=True)
 
         self.data = [(p,0) for p in self.real] + [(p,1) for p in self.fake]
         random.shuffle(self.data)
