@@ -1,4 +1,5 @@
 import argparse
+import json
 import os
 import random
 import shutil
@@ -91,10 +92,40 @@ def export_split(items, output_root, split, label, mode, source_root):
     fake 图像保留生成器子目录，便于后续按生成器分析错误样本；
     Dataset 已支持递归读取，因此不会影响训练。
     """
+    exported = []
     for src in items:
         rel = src.relative_to(source_root)
         dst = output_root / split / label / rel
         link_or_copy(src, dst, mode)
+        exported.append(str(dst))
+    return exported
+
+
+def write_manifest(output_root, split, real_paths, fake_paths):
+    """
+    写出训练代码可直接读取的 split 文件清单。
+
+    服务器文件系统在大量软链接目录上递归扫描可能非常慢，甚至让 Python 进程进入
+    D 状态 I/O 等待。这里利用数据划分阶段已经掌握的目标路径，直接生成 manifest，
+    后续训练无需再 os.walk(data/image)。
+    """
+    real_dir = output_root / split / "real"
+    fake_dir = output_root / split / "fake"
+    manifest = output_root / f".{split}_manifest.json"
+    payload = {
+        "meta": {
+            "real_dir": str(real_dir.resolve()),
+            "fake_dir": str(fake_dir.resolve()),
+            "real_mtime": real_dir.stat().st_mtime if real_dir.exists() else 0,
+            "fake_mtime": fake_dir.stat().st_mtime if fake_dir.exists() else 0,
+        },
+        "real": real_paths,
+        "fake": fake_paths,
+    }
+
+    with manifest.open("w", encoding="utf-8") as f:
+        json.dump(payload, f)
+    print(f"  manifest: {manifest} | real={len(real_paths)}, fake={len(fake_paths)}")
 
 
 def parse_args():
@@ -140,13 +171,17 @@ def main():
         fake_images, args.train_ratio, args.val_ratio, args.seed
     )
 
-    export_split(real_train, output_root, "train", "real", args.mode, real_root)
-    export_split(real_val, output_root, "val", "real", args.mode, real_root)
-    export_split(real_test, output_root, "test", "real", args.mode, real_root)
+    real_train_paths = export_split(real_train, output_root, "train", "real", args.mode, real_root)
+    real_val_paths = export_split(real_val, output_root, "val", "real", args.mode, real_root)
+    real_test_paths = export_split(real_test, output_root, "test", "real", args.mode, real_root)
 
-    export_split(fake_train, output_root, "train", "fake", args.mode, fake_root)
-    export_split(fake_val, output_root, "val", "fake", args.mode, fake_root)
-    export_split(fake_test, output_root, "test", "fake", args.mode, fake_root)
+    fake_train_paths = export_split(fake_train, output_root, "train", "fake", args.mode, fake_root)
+    fake_val_paths = export_split(fake_val, output_root, "val", "fake", args.mode, fake_root)
+    fake_test_paths = export_split(fake_test, output_root, "test", "fake", args.mode, fake_root)
+
+    write_manifest(output_root, "train", real_train_paths, fake_train_paths)
+    write_manifest(output_root, "val", real_val_paths, fake_val_paths)
+    write_manifest(output_root, "test", real_test_paths, fake_test_paths)
 
     print("数据划分完成：")
     print(f"  real: train={len(real_train)}, val={len(real_val)}, test={len(real_test)}")

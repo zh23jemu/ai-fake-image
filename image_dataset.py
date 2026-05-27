@@ -70,14 +70,19 @@ def _load_or_build_manifest(root, split, real_dir, fake_dir):
         try:
             with open(manifest, "r", encoding="utf-8") as f:
                 cached = json.load(f)
-            if cached.get("meta") == current_meta:
-                real = cached.get("real", [])
-                fake = cached.get("fake", [])
+            real = cached.get("real", [])
+            fake = cached.get("fake", [])
+            cached_meta = cached.get("meta") or {}
+            if cached_meta != current_meta:
                 print(
-                    f"✅ {split} 集使用缓存清单 | real={len(real)}, fake={len(fake)}",
+                    f"⚠️  {split} 集 manifest 元数据与当前目录不完全一致，将先复用清单以避免慢速文件系统递归扫描。",
                     flush=True,
                 )
-                return real, fake
+            print(
+                f"✅ {split} 集使用缓存清单 | real={len(real)}, fake={len(fake)}",
+                flush=True,
+            )
+            return real, fake
         except Exception as exc:
             print(f"⚠️  {split} 集 manifest 读取失败，将重新扫描：{exc}", flush=True)
 

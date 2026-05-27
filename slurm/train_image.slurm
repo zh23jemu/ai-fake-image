@@ -103,9 +103,12 @@ if [ ! -d "${IMAGE_DATA_ROOT}/train/real" ] || \
    [ ! -d "${IMAGE_DATA_ROOT}/val/real" ] || \
    [ ! -d "${IMAGE_DATA_ROOT}/val/fake" ] || \
    [ ! -d "${IMAGE_DATA_ROOT}/test/real" ] || \
-   [ ! -d "${IMAGE_DATA_ROOT}/test/fake" ]; then
+   [ ! -d "${IMAGE_DATA_ROOT}/test/fake" ] || \
+   [ ! -f "${IMAGE_DATA_ROOT}/.train_manifest.json" ] || \
+   [ ! -f "${IMAGE_DATA_ROOT}/.val_manifest.json" ] || \
+   [ ! -f "${IMAGE_DATA_ROOT}/.test_manifest.json" ]; then
   echo "===== 准备训练数据划分 ====="
-  echo "未检测到完整的 ${IMAGE_DATA_ROOT}/train|val|test/real|fake 结构，将从 content/ 自动生成软链接划分。"
+  echo "未检测到完整的数据目录或 manifest，将从 content/ 自动生成软链接划分和文件清单。"
   ".venv/bin/python" scripts/prepare_image_splits.py \
     --content-root content \
     --output-root "${IMAGE_DATA_ROOT}" \
