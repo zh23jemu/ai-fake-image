@@ -27,7 +27,7 @@
 - 修改文件前先读取现有内容，保持最小修改，不做无关重构。
 - 新增复杂逻辑时使用较详细的中文注释，说明用途、关键逻辑、重要分支、参数、返回值和不明显实现细节。
 - 数据集小文件默认允许入库；训练生成的大模型权重、检查点、本地虚拟环境、缓存、密钥和日志不入库。
-- 本项目是深度学习训练项目，长时间训练优先准备 Slurm 运行方式；GPU 任务默认使用 `aws` 分区、`gpo-ifv7xx` 账号和 `normal` QOS。
+- 本项目是深度学习训练项目，长时间训练优先准备 Slurm 运行方式；GPU 任务默认使用 `gpu` 分区、`gpo-ifv7xx` 账号和 `normal` QOS。不要默认使用 `aws` 分区，避免产生额外费用；短时任务可按需使用 `gpuHz` 分区。
 
 ## TODO
 
@@ -52,7 +52,7 @@
 - 调整噪声特征提取方式，保留高频残差幅值信息，避免负残差被直接清零。
 - 调整训练配置：默认使用项目内 `data/image`、`models/weights`、`results` 路径，降低学习率、减弱标签平滑、取消 fake 类额外权重、默认关闭加噪 TTA，并支持通过环境变量覆盖路径。
 - 新增 `scripts/prepare_image_splits.py`，可将 `content/` 原始图像整理为训练脚本需要的 `train/val/test/real/fake` 结构。
-- 增强 `slurm/train_image.slurm`：保留 `aws` GPU 分区、`gpo-ifv7xx` 账号和 `normal` QOS，增加 GPU/nvidia-smi 诊断、PyTorch CUDA 可用性检查、训练路径环境变量覆盖、输出目录创建，以及缺少 `data/image` 时自动生成软链接数据划分。
+- 增强 `slurm/train_image.slurm`：保留 `gpu` GPU 分区、`gpo-ifv7xx` 账号和 `normal` QOS，增加 GPU/nvidia-smi 诊断、PyTorch CUDA 可用性检查、训练路径环境变量覆盖、输出目录创建，以及缺少 `data/image` 时自动生成软链接数据划分。
 - 新增 `requirements.txt`，记录 `numpy`、`scipy`、`opencv-python`、`pillow`、`scikit-learn`、`matplotlib`、`tqdm` 等通用依赖，并在注释中说明 GPU 版 PyTorch 需要使用 CUDA 12.x 兼容 wheel 单独安装。
 - 新增 `scripts/setup_server_env.sh`，便于服务器尚未创建 `.venv` 时一键初始化虚拟环境和训练依赖；`slurm/train_image.slurm` 在缺少 `.venv` 时会提示先运行该脚本。
 - 为服务器提速和排障补充训练环境变量：`IMAGE_BATCH_SIZE`、`IMAGE_EPOCHS`、`IMAGE_ACCUMULATION_STEPS`、`IMAGE_NUM_WORKERS`、`IMAGE_PREFETCH_FACTOR`、`IMAGE_PATIENCE`、`IMAGE_WARMUP_EPOCHS`；Slurm 默认改为 L40S 更合适的 batch/workers/epoch，并使用 `python -u` 实时刷新日志。
@@ -61,6 +61,7 @@
 - `scripts/prepare_image_splits.py` 优先用 `git ls-files` 从 Git 索引收集 `content/` 图片；当 `data/image` 已存在但 manifest 缺失时，Slurm 使用 `--manifest-only` 只生成清单，不再逐个检查软链接。
 - 移除 `ReduceLROnPlateau(verbose=True)` 过时参数，兼容服务器当前 PyTorch 2.12 调度器签名。
 - 将 `ImageFakeDataset` 在线噪声特征提取从 SciPy `ndimage` 实现切换为 OpenCV `GaussianBlur/filter2D`，保留高频残差幅值归一化语义，减少 DataLoader CPU 预处理瓶颈。
+- 同步全局 Slurm 分区策略：GPU 默认分区从 `aws` 改为 `gpu`，仅在短时任务或用户明确指定时使用 `gpuHz`，避免 `aws` 额外费用。
 
 ## Next TODO
 

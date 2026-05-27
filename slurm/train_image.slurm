@@ -1,12 +1,13 @@
 #!/bin/bash
 #
 # 图像真假检测训练任务提交脚本。
-# 默认面向 GPU 训练环境，使用项目约定的 aws 分区、gpo-ifv7xx 账号和 normal QOS。
+# 默认面向 GPU 训练环境，使用项目约定的 gpu 分区、gpo-ifv7xx 账号和 normal QOS。
+# 不默认使用 aws 分区，避免产生额外费用；短时任务可在提交时覆盖到 gpuHz。
 # 如需临时切换分区，可使用：
 #   sbatch --partition=目标分区 slurm/train_image.slurm
 
 #SBATCH --job-name=ai-fake-image-train
-#SBATCH --partition=aws
+#SBATCH --partition=gpu
 #SBATCH --account=gpo-ifv7xx
 #SBATCH --qos=normal
 #SBATCH --nodes=1
