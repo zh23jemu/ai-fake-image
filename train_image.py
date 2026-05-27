@@ -196,6 +196,7 @@ class Config:
     # 这些参数支持环境变量覆盖，便于在 Slurm 服务器上按 GPU 显存和排队时间快速调速，
     # 例如：IMAGE_BATCH_SIZE=64 IMAGE_EPOCHS=60 sbatch slurm/train_image.slurm。
     BATCH_SIZE = int(os.environ.get("IMAGE_BATCH_SIZE", "16"))
+    EVAL_BATCH_SIZE = int(os.environ.get("IMAGE_EVAL_BATCH_SIZE", str(BATCH_SIZE)))
     EPOCHS = int(os.environ.get("IMAGE_EPOCHS", "120"))
     LR = 1e-4  # 降低学习率，配合噪声分支更稳定地学习细粒度伪造痕迹
     MIN_LR = 1e-6
@@ -435,7 +436,8 @@ def train_image_model():
     print(f"  - 数据增强: {cfg.USE_AUGMENTATION}")
     print(f"  - 测试时增强: {cfg.USE_TTA} (TTA次数={cfg.TTA_TIMES})")
     print(f"  - 训练轮数: {cfg.EPOCHS}")
-    print(f"  - 批次大小: {cfg.BATCH_SIZE} × {cfg.ACCUMULATION_STEPS} = {cfg.BATCH_SIZE * cfg.ACCUMULATION_STEPS}")
+    print(f"  - 训练批次大小: {cfg.BATCH_SIZE} × {cfg.ACCUMULATION_STEPS} = {cfg.BATCH_SIZE * cfg.ACCUMULATION_STEPS}")
+    print(f"  - 验证/测试批次大小: {cfg.EVAL_BATCH_SIZE}")
     print("=" * 60)
 
     # 设置随机种子
@@ -478,7 +480,7 @@ def train_image_model():
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=cfg.BATCH_SIZE,
+        batch_size=cfg.EVAL_BATCH_SIZE,
         shuffle=False,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=cfg.PIN_MEMORY,
@@ -487,7 +489,7 @@ def train_image_model():
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=cfg.BATCH_SIZE,
+        batch_size=cfg.EVAL_BATCH_SIZE,
         shuffle=False,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=cfg.PIN_MEMORY,

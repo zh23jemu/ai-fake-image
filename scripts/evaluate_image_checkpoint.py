@@ -57,7 +57,7 @@ def main():
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=cfg.BATCH_SIZE,
+        batch_size=cfg.EVAL_BATCH_SIZE,
         shuffle=False,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=cfg.PIN_MEMORY,
@@ -66,7 +66,7 @@ def main():
     )
     test_loader = DataLoader(
         test_dataset,
-        batch_size=cfg.BATCH_SIZE,
+        batch_size=cfg.EVAL_BATCH_SIZE,
         shuffle=False,
         num_workers=cfg.NUM_WORKERS,
         pin_memory=cfg.PIN_MEMORY,
