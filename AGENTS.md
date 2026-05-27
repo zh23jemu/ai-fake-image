@@ -60,6 +60,7 @@
 - 更新 `scripts/prepare_image_splits.py`，在创建/复用训练软链接时直接写出 split manifest；Slurm 在 manifest 缺失时会自动重新运行数据准备脚本，避免训练阶段递归扫描 `data/image` 导致 I/O 等待。
 - `scripts/prepare_image_splits.py` 优先用 `git ls-files` 从 Git 索引收集 `content/` 图片；当 `data/image` 已存在但 manifest 缺失时，Slurm 使用 `--manifest-only` 只生成清单，不再逐个检查软链接。
 - 移除 `ReduceLROnPlateau(verbose=True)` 过时参数，兼容服务器当前 PyTorch 2.12 调度器签名。
+- 将 `ImageFakeDataset` 在线噪声特征提取从 SciPy `ndimage` 实现切换为 OpenCV `GaussianBlur/filter2D`，保留高频残差幅值归一化语义，减少 DataLoader CPU 预处理瓶颈。
 
 ## Next TODO
 
@@ -72,6 +73,7 @@
 - 首次生成 manifest 后再次提交作业应明显缩短数据集加载时间；如果 manifest 过期或损坏，代码会自动重新扫描并覆盖。
 - 若 Python 进程处于 `D` 状态且 CPU 很低，通常是慢速文件系统 I/O 等待；优先取消作业、拉取最新版，通过数据准备脚本生成 manifest 后再提交训练。
 - 若 `data/image` 已经存在但 manifest 缺失，应优先走 `scripts/prepare_image_splits.py --manifest-only`，避免慢速文件系统上的软链接存在性检查。
+- 若 GPU 利用率仍呈现间歇性峰值和长时间 0%，继续关注在线图片解码、增强和噪声特征提取；必要时考虑预生成噪声特征缓存。
 
 ## Open Issues
 

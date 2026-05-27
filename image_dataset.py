@@ -8,6 +8,7 @@ from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 from PIL import Image
 import numpy as np
+import cv2
 
 
 IMAGE_EXTENSIONS = (".jpg", ".png", ".jpeg", ".bmp")
@@ -245,27 +246,37 @@ class ImageFakeDataset(Dataset):
 
 
 def extract_noise_feature_fast(img_pil):
-    """优化版：快速提取噪声特征，减少内存占用"""
-    # 转换为numpy（使用float32以兼容scipy）
-    img_np = np.array(img_pil, dtype=np.float32) / 255.0
-    
-    from scipy import ndimage
-    # 高斯滤波
-    blur = ndimage.gaussian_filter(img_np, sigma=1.5)
-    
-    # 计算噪声
+    """
+    使用 OpenCV 快速提取噪声/高频特征。
+
+    训练时每张图片都会在线计算噪声分支，SciPy 的 gaussian_filter 与逐通道
+    ndimage.convolve 在多进程 DataLoader 中开销较高，容易导致 GPU 等 CPU。
+    OpenCV 的 GaussianBlur/filter2D 底层实现更快，同时保留原有“高频残差幅值
+    + 99.5 分位归一化”的特征语义，避免改变模型输入结构。
+    """
+    img_np = np.asarray(img_pil, dtype=np.float32) / 255.0
+
+    # sigmaX=1.5 与原 SciPy sigma=1.5 对齐；边界使用 REFLECT，减少边缘伪影。
+    blur = cv2.GaussianBlur(
+        img_np,
+        ksize=(0, 0),
+        sigmaX=1.5,
+        sigmaY=1.5,
+        borderType=cv2.BORDER_REFLECT,
+    )
     noise = img_np - blur
-    
-    # 高通滤波核
+
     kernel = np.array([[-1, -1, -1], 
                        [-1,  8, -1], 
                        [-1, -1, -1]], dtype=np.float32) / 8.0
-    
-    # 对每个通道应用卷积
-    high_pass = np.zeros_like(noise)
-    for c in range(3):
-        high_pass[:,:,c] = ndimage.convolve(noise[:,:,c], kernel, mode='reflect')
-    
+
+    high_pass = cv2.filter2D(
+        noise,
+        ddepth=-1,
+        kernel=kernel,
+        borderType=cv2.BORDER_REFLECT,
+    )
+
     # 使用高频残差的幅值作为噪声线索，而不是直接裁剪负值。
     # 直接 np.clip(high_pass, 0, 1) 会把所有负残差清零，丢掉一半边缘/纹理信息；
     # 对 AI 生成检测来说，这类双向高频残差往往正是区分真实图像和生成图像的关键证据。
@@ -275,8 +286,5 @@ def extract_noise_feature_fast(img_pil):
         high_pass = high_pass / max_value
     high_pass = np.clip(high_pass, 0, 1)
     high_pass_pil = Image.fromarray((high_pass * 255).astype(np.uint8))
-    
-    # 释放中间变量
-    del img_np, blur, noise, high_pass
     
     return high_pass_pil
