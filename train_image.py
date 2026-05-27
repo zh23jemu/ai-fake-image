@@ -668,9 +668,13 @@ def train_image_model():
     # 加载最佳模型
     checkpoint = None
     if os.path.exists(os.path.join(cfg.SAVE_DIR, "image_best.pth")):
+        # 该 checkpoint 是本训练脚本刚保存的可信本地文件，里面除了模型权重还包含
+        # numpy 指标、训练历史和配置。PyTorch 2.6+ 默认 weights_only=True 会拒绝
+        # 这些对象，因此这里显式使用 weights_only=False 以兼容新版 PyTorch。
         checkpoint = torch.load(
             os.path.join(cfg.SAVE_DIR, "image_best.pth"),
-            map_location=cfg.DEVICE
+            map_location=cfg.DEVICE,
+            weights_only=False
         )
         model.load_state_dict(checkpoint['model_state_dict'])
         print(f"✅ 加载最佳模型 (Epoch {checkpoint['epoch'] + 1})")

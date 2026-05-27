@@ -62,6 +62,7 @@
 - 移除 `ReduceLROnPlateau(verbose=True)` 过时参数，兼容服务器当前 PyTorch 2.12 调度器签名。
 - 将 `ImageFakeDataset` 在线噪声特征提取从 SciPy `ndimage` 实现切换为 OpenCV `GaussianBlur/filter2D`，保留高频残差幅值归一化语义，减少 DataLoader CPU 预处理瓶颈。
 - 同步全局 Slurm 分区策略：GPU 默认分区从 `aws` 改为 `gpu`，仅在短时任务或用户明确指定时使用 `gpuHz`，避免 `aws` 额外费用。
+- 修复 PyTorch 2.6+ checkpoint 加载默认 `weights_only=True` 导致的最终测试失败；训练脚本加载本项目可信 checkpoint 时显式设置 `weights_only=False`，并新增 `scripts/evaluate_image_checkpoint.py` 复用已保存最佳模型单独评估。
 
 ## Next TODO
 
@@ -75,6 +76,7 @@
 - 若 Python 进程处于 `D` 状态且 CPU 很低，通常是慢速文件系统 I/O 等待；优先取消作业、拉取最新版，通过数据准备脚本生成 manifest 后再提交训练。
 - 若 `data/image` 已经存在但 manifest 缺失，应优先走 `scripts/prepare_image_splits.py --manifest-only`，避免慢速文件系统上的软链接存在性检查。
 - 若 GPU 利用率仍呈现间歇性峰值和长时间 0%，继续关注在线图片解码、增强和噪声特征提取；必要时考虑预生成噪声特征缓存。
+- 如果训练已保存 `models/weights/image_best.pth` 但最终测试阶段失败，可直接运行 `.venv/bin/python scripts/evaluate_image_checkpoint.py` 生成测试结果，无需重新训练。
 
 ## Open Issues
 
