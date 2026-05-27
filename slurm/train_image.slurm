@@ -98,6 +98,16 @@ PY
 
 # 如果服务器刚从 GitHub 拉取，还没有生成训练脚本需要的 train/val/test 目录，
 # 则自动基于 content/ 原始数据创建软链接划分，节省磁盘空间和同步时间。
+DATA_DIR_READY=0
+if [ -d "${IMAGE_DATA_ROOT}/train/real" ] && \
+   [ -d "${IMAGE_DATA_ROOT}/train/fake" ] && \
+   [ -d "${IMAGE_DATA_ROOT}/val/real" ] && \
+   [ -d "${IMAGE_DATA_ROOT}/val/fake" ] && \
+   [ -d "${IMAGE_DATA_ROOT}/test/real" ] && \
+   [ -d "${IMAGE_DATA_ROOT}/test/fake" ]; then
+  DATA_DIR_READY=1
+fi
+
 if [ ! -d "${IMAGE_DATA_ROOT}/train/real" ] || \
    [ ! -d "${IMAGE_DATA_ROOT}/train/fake" ] || \
    [ ! -d "${IMAGE_DATA_ROOT}/val/real" ] || \
@@ -109,10 +119,19 @@ if [ ! -d "${IMAGE_DATA_ROOT}/train/real" ] || \
    [ ! -f "${IMAGE_DATA_ROOT}/.test_manifest.json" ]; then
   echo "===== 准备训练数据划分 ====="
   echo "未检测到完整的数据目录或 manifest，将从 content/ 自动生成软链接划分和文件清单。"
-  ".venv/bin/python" scripts/prepare_image_splits.py \
-    --content-root content \
-    --output-root "${IMAGE_DATA_ROOT}" \
-    --mode symlink
+  if [ "${DATA_DIR_READY}" -eq 1 ]; then
+    echo "检测到 ${IMAGE_DATA_ROOT} 数据目录已存在，仅使用 Git 索引快速生成 manifest。"
+    ".venv/bin/python" scripts/prepare_image_splits.py \
+      --content-root content \
+      --output-root "${IMAGE_DATA_ROOT}" \
+      --mode symlink \
+      --manifest-only
+  else
+    ".venv/bin/python" scripts/prepare_image_splits.py \
+      --content-root content \
+      --output-root "${IMAGE_DATA_ROOT}" \
+      --mode symlink
+  fi
 fi
 
 echo "===== 训练配置 ====="

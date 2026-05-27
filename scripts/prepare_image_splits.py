@@ -3,6 +3,7 @@ import json
 import os
 import random
 import shutil
+import subprocess
 from pathlib import Path
 
 
@@ -22,6 +23,27 @@ def collect_images(root):
     root = Path(root)
     if not root.exists():
         return []
+
+    # 服务器上的数据来自 Git，同步后 Git 索引已经记录了所有图片路径。
+    # 优先读取 `git ls-files` 可以避开慢速共享文件系统上的递归目录扫描；
+    # 如果当前目录不是 Git 仓库或索引不可用，再回退到 rglob。
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--", str(root)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            files = [
+                Path(line)
+                for line in result.stdout.splitlines()
+                if Path(line).suffix.lower() in IMAGE_SUFFIXES
+            ]
+            print(f"使用 Git 索引收集 {root}: {len(files)} 张")
+            return sorted(files)
+    except Exception as exc:
+        print(f"Git 索引读取失败，回退到目录扫描：{exc}")
 
     return sorted(
         p for p in root.rglob("*")
@@ -79,7 +101,7 @@ def link_or_copy(src, dst, mode):
         raise ValueError(f"未知写入模式：{mode}")
 
 
-def export_split(items, output_root, split, label, mode, source_root):
+def export_split(items, output_root, split, label, mode, source_root, manifest_only=False):
     """
     将一个类别的某个 split 导出到训练代码期望的目录结构。
 
@@ -96,7 +118,8 @@ def export_split(items, output_root, split, label, mode, source_root):
     for src in items:
         rel = src.relative_to(source_root)
         dst = output_root / split / label / rel
-        link_or_copy(src, dst, mode)
+        if not manifest_only:
+            link_or_copy(src, dst, mode)
         exported.append(str(dst))
     return exported
 
@@ -144,6 +167,11 @@ def parse_args():
         default="symlink",
         help="输出方式：symlink 最省空间；Windows 无权限时可改 hardlink 或 copy。",
     )
+    parser.add_argument(
+        "--manifest-only",
+        action="store_true",
+        help="仅根据划分规则写出 manifest，不再逐个检查或创建软链接；适合 data/image 目录已存在但清单缺失的服务器场景。",
+    )
     return parser.parse_args()
 
 
@@ -171,13 +199,13 @@ def main():
         fake_images, args.train_ratio, args.val_ratio, args.seed
     )
 
-    real_train_paths = export_split(real_train, output_root, "train", "real", args.mode, real_root)
-    real_val_paths = export_split(real_val, output_root, "val", "real", args.mode, real_root)
-    real_test_paths = export_split(real_test, output_root, "test", "real", args.mode, real_root)
+    real_train_paths = export_split(real_train, output_root, "train", "real", args.mode, real_root, args.manifest_only)
+    real_val_paths = export_split(real_val, output_root, "val", "real", args.mode, real_root, args.manifest_only)
+    real_test_paths = export_split(real_test, output_root, "test", "real", args.mode, real_root, args.manifest_only)
 
-    fake_train_paths = export_split(fake_train, output_root, "train", "fake", args.mode, fake_root)
-    fake_val_paths = export_split(fake_val, output_root, "val", "fake", args.mode, fake_root)
-    fake_test_paths = export_split(fake_test, output_root, "test", "fake", args.mode, fake_root)
+    fake_train_paths = export_split(fake_train, output_root, "train", "fake", args.mode, fake_root, args.manifest_only)
+    fake_val_paths = export_split(fake_val, output_root, "val", "fake", args.mode, fake_root, args.manifest_only)
+    fake_test_paths = export_split(fake_test, output_root, "test", "fake", args.mode, fake_root, args.manifest_only)
 
     write_manifest(output_root, "train", real_train_paths, fake_train_paths)
     write_manifest(output_root, "val", real_val_paths, fake_val_paths)
@@ -188,6 +216,7 @@ def main():
     print(f"  fake: train={len(fake_train)}, val={len(fake_val)}, test={len(fake_test)}")
     print(f"  output_root={output_root}")
     print(f"  mode={args.mode}")
+    print(f"  manifest_only={args.manifest_only}")
 
 
 if __name__ == "__main__":
