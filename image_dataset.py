@@ -172,7 +172,7 @@ class PairedImageNoiseTransform:
         return _to_normalized_tensor(img), _to_normalized_tensor(noise_img)
 
 class ImageFakeDataset(Dataset):
-    def __init__(self, root, split="train", is_train=False, transform=None, max_samples=None):
+    def __init__(self, root, split="train", is_train=False, transform=None, max_samples=None, sampling="balanced"):
         """
         数据集类
         
@@ -181,7 +181,10 @@ class ImageFakeDataset(Dataset):
             split: 数据集分割 (train/val/test)
             is_train: 是否为训练集
             transform: 数据增强变换
-            max_samples: 每个类别最大样本数（仅对训练集有效，None表示不限制）
+            max_samples: 训练集最大采样数量。`balanced` 模式表示每类最多样本数；
+                `natural` 模式表示总训练样本数，None 或 <=0 表示使用全部样本。
+            sampling: 训练集采样方式。`balanced` 强制 real/fake 1:1；`natural`
+                保留原始训练集 fake 占比，更贴近验证/测试集分布，适合冲 Accuracy。
         """
         self.root = root
         self.split = split
@@ -194,27 +197,45 @@ class ImageFakeDataset(Dataset):
 
         self.real, self.fake = _load_or_build_manifest(root, split, real_dir, fake_dir)
 
-        # 优化：训练集强制类别平衡，验证/测试集保留全部数据
+        # 训练集支持两种采样：balanced 兼顾类别公平，natural 更贴近验证/测试集先验分布。
         if split == "train":
-            # 训练集：确保类别平衡
-            n = min(len(self.real), len(self.fake))
-            
-            # 如果指定了max_samples，则进一步限制数据量
-            if max_samples is not None and max_samples > 0:
-                n = min(n, max_samples)
-                print(f"ℹ️  {split} 集数据量限制为每类 {max_samples} 张", flush=True)
-            
-            self.real = random.sample(self.real, n)
-            self.fake = random.sample(self.fake, n)
-            print(f"✅ {split} 集平衡完成 | real={n}, fake={n}, 总计={2*n}", flush=True)
+            if sampling == "natural":
+                merged = [(p, 0) for p in self.real] + [(p, 1) for p in self.fake]
+                if max_samples is not None and max_samples > 0:
+                    sample_size = min(len(merged), max_samples)
+                    merged = random.sample(merged, sample_size)
+                    print(f"ℹ️  {split} 集 natural 采样总量限制为 {sample_size} 张", flush=True)
+
+                random.shuffle(merged)
+                self.data = merged
+                n_real = sum(1 for _, label in self.data if label == 0)
+                n_fake = len(self.data) - n_real
+                print(
+                    f"✅ {split} 集 natural 采样完成 | real={n_real}, fake={n_fake}, "
+                    f"fake占比={n_fake / max(len(self.data), 1):.3f}, 总计={len(self.data)}",
+                    flush=True,
+                )
+            else:
+                # 训练集：确保类别平衡
+                n = min(len(self.real), len(self.fake))
+
+                # 如果指定了max_samples，则进一步限制数据量
+                if max_samples is not None and max_samples > 0:
+                    n = min(n, max_samples)
+                    print(f"ℹ️  {split} 集数据量限制为每类 {max_samples} 张", flush=True)
+
+                self.real = random.sample(self.real, n)
+                self.fake = random.sample(self.fake, n)
+                self.data = [(p,0) for p in self.real] + [(p,1) for p in self.fake]
+                random.shuffle(self.data)
+                print(f"✅ {split} 集平衡完成 | real={n}, fake={n}, 总计={2*n}", flush=True)
         else:
             # 验证和测试集：使用全部数据，不进行采样
             n_real = len(self.real)
             n_fake = len(self.fake)
             print(f"✅ {split} 集（完整数据）| real={n_real}, fake={n_fake}, 总计={n_real + n_fake}", flush=True)
-
-        self.data = [(p,0) for p in self.real] + [(p,1) for p in self.fake]
-        random.shuffle(self.data)
+            self.data = [(p,0) for p in self.real] + [(p,1) for p in self.fake]
+            random.shuffle(self.data)
 
         # 原图与噪声图必须使用同一组几何增强参数，否则双分支输入会空间错位。
         self.transform = transform if transform is not None else PairedImageNoiseTransform(is_train)

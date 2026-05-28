@@ -65,6 +65,7 @@
 - 修复 PyTorch 2.6+ checkpoint 加载默认 `weights_only=True` 导致的最终测试失败；训练脚本加载本项目可信 checkpoint 时显式设置 `weights_only=False`，并新增 `scripts/evaluate_image_checkpoint.py` 复用已保存最佳模型单独评估。
 - 为学校要求的 Val_Acc 指标补充准确率导向流程：训练时额外保存 `models/weights/image_best_acc.pth`，评估脚本默认加载该 checkpoint，并用验证集 accuracy 搜索分类阈值。
 - 为 L40S 提升吞吐并规避 DataLoader OOM：Slurm 默认 CPU 为 16、内存 96G，训练 batch 默认 128，验证/测试 batch 默认 256，DataLoader workers 默认 8、prefetch 默认 2；仍可用环境变量覆盖以平衡速度和内存。
+- 新增 `IMAGE_TRAIN_SAMPLING` 采样策略：默认 `balanced` 维持 real/fake 1:1；冲击客户硬性 Accuracy 80%+ 时可设置 `natural`，让训练集 fake 占比贴近验证/测试集分布。
 
 ## Next TODO
 
@@ -82,6 +83,7 @@
 - 下一轮冲击 80% Val_Acc 时优先使用更多训练样本和更长 patience，例如 `IMAGE_MAX_SAMPLES_PER_CLASS=60000 IMAGE_PATIENCE=20 sbatch --partition=gpu slurm/train_image.slurm`，并关注 `image_best_acc.pth`。
 - 若 batch 128 稳定且显存仍有余量，可继续试 `IMAGE_BATCH_SIZE=192`；如出现 OOM，优先降低 `IMAGE_NUM_WORKERS`/`IMAGE_PREFETCH_FACTOR`，再回退到 `IMAGE_BATCH_SIZE=64`。
 - 若训练已保存 `image_best_acc.pth` 后因 OOM 中断，可先运行 `.venv/bin/python scripts/evaluate_image_checkpoint.py` 复用已保存 checkpoint 得到测试结果。
+- 下一轮若继续冲 Accuracy，建议尝试 `IMAGE_TRAIN_SAMPLING=natural IMAGE_MAX_SAMPLES_PER_CLASS=180000 IMAGE_PATIENCE=25 IMAGE_EPOCHS=90 sbatch --partition=gpu slurm/train_image.slurm`。
 
 ## Open Issues
 

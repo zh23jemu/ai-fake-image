@@ -246,6 +246,9 @@ class Config:
 
     # 训练集每类最多采样数量。设为0或负数表示不限制；默认多用一些数据以覆盖不同生成器。
     MAX_SAMPLES_PER_CLASS = int(os.environ.get("IMAGE_MAX_SAMPLES_PER_CLASS", "60000"))
+    # 训练采样策略：balanced 保持 real/fake 1:1；natural 保留训练集原始 fake 占比，
+    # 更贴近验证/测试集分布，适合客户硬性要求 Accuracy 80%+ 的目标。
+    TRAIN_SAMPLING = os.environ.get("IMAGE_TRAIN_SAMPLING", "balanced").lower()
 
 # ====================== Focal Loss实现 ======================
 class FocalLoss(nn.Module):
@@ -438,6 +441,7 @@ def train_image_model():
     print(f"  - 训练轮数: {cfg.EPOCHS}")
     print(f"  - 训练批次大小: {cfg.BATCH_SIZE} × {cfg.ACCUMULATION_STEPS} = {cfg.BATCH_SIZE * cfg.ACCUMULATION_STEPS}")
     print(f"  - 验证/测试批次大小: {cfg.EVAL_BATCH_SIZE}")
+    print(f"  - 训练采样策略: {cfg.TRAIN_SAMPLING}")
     print("=" * 60)
 
     # 设置随机种子
@@ -463,7 +467,8 @@ def train_image_model():
         root=cfg.DATA_ROOT, 
         split="train", 
         is_train=True,
-        max_samples=cfg.MAX_SAMPLES_PER_CLASS  # 限制训练集每类最多样本数，便于按显存和训练时间调整
+        max_samples=cfg.MAX_SAMPLES_PER_CLASS,  # balanced 下为每类上限；natural 下为总样本上限。
+        sampling=cfg.TRAIN_SAMPLING
     )
     val_dataset = ImageFakeDataset(root=cfg.DATA_ROOT, split="val", is_train=False)
     test_dataset = ImageFakeDataset(root=cfg.DATA_ROOT, split="test", is_train=False)
