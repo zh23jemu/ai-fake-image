@@ -66,6 +66,7 @@
 - 为学校要求的 Val_Acc 指标补充准确率导向流程：训练时额外保存 `models/weights/image_best_acc.pth`，评估脚本默认加载该 checkpoint，并用验证集 accuracy 搜索分类阈值。
 - 为 L40S 提升吞吐并规避 DataLoader OOM：Slurm 默认 CPU 为 16、内存 96G，训练 batch 默认 128，验证/测试 batch 默认 256，DataLoader workers 默认 8、prefetch 默认 2；仍可用环境变量覆盖以平衡速度和内存。
 - 新增 `IMAGE_TRAIN_SAMPLING` 采样策略：默认 `balanced` 维持 real/fake 1:1；冲击客户硬性 Accuracy 80%+ 时可设置 `natural`，让训练集 fake 占比贴近验证/测试集分布。
+- 新增面向用户交付的 `README.md`，说明普通 Python 环境准备、数据划分、训练、评估和当前 81.66% Accuracy 参考结果；交付文档不包含 Slurm 使用说明。
 
 ## Next TODO
 
@@ -84,6 +85,7 @@
 - 若 batch 128 稳定且显存仍有余量，可继续试 `IMAGE_BATCH_SIZE=192`；如出现 OOM，优先降低 `IMAGE_NUM_WORKERS`/`IMAGE_PREFETCH_FACTOR`，再回退到 `IMAGE_BATCH_SIZE=64`。
 - 若训练已保存 `image_best_acc.pth` 后因 OOM 中断，可先运行 `.venv/bin/python scripts/evaluate_image_checkpoint.py` 复用已保存 checkpoint 得到测试结果。
 - 下一轮若继续冲 Accuracy，建议尝试 `IMAGE_TRAIN_SAMPLING=natural IMAGE_MAX_SAMPLES_PER_CLASS=180000 IMAGE_PATIENCE=25 IMAGE_EPOCHS=90 sbatch --partition=gpu slurm/train_image.slurm`。
+- 打包交付时需在服务器上包含 `models/weights/image_best_acc.pth`、`image_best.pth`、`train_results.json` 和 README；本地 Git 仓库默认忽略权重文件，不能仅从本地打包获得训练好模型。
 
 ## Open Issues
 
