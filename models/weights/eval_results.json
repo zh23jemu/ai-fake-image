@@ -1,0 +1,28 @@
+{
+  "checkpoint": "models/weights/image_best_acc.pth",
+  "checkpoint_epoch": 43,
+  "best_val_f1": 0.0,
+  "best_val_accuracy": 0.7771688375522241,
+  "threshold_metric": "accuracy",
+  "threshold": 0.4300000000000001,
+  "threshold_precision": 0.8167132894685001,
+  "threshold_f1": 0.8217804119011278,
+  "test_results": {
+    "loss": 0.4658126832109326,
+    "accuracy": 0.7819964612208788,
+    "precision": 0.8179747928854686,
+    "recall": 0.8310595181107387,
+    "f1": 0.8244652432870966,
+    "roc_auc": 0.8604958427567544
+  },
+  "confusion_matrix": [
+    [
+      10988,
+      4636
+    ],
+    [
+      4235,
+      20833
+    ]
+  ]
+}
