@@ -66,7 +66,7 @@
 - 为学校要求的 Val_Acc 指标补充准确率导向流程：训练时额外保存 `models/weights/image_best_acc.pth`，评估脚本默认加载该 checkpoint，并用验证集 accuracy 搜索分类阈值。
 - 为 L40S 提升吞吐并规避 DataLoader OOM：Slurm 默认 CPU 为 16、内存 96G，训练 batch 默认 128，验证/测试 batch 默认 256，DataLoader workers 默认 8、prefetch 默认 2；仍可用环境变量覆盖以平衡速度和内存。
 - 新增 `IMAGE_TRAIN_SAMPLING` 采样策略：默认 `balanced` 维持 real/fake 1:1；冲击客户硬性 Accuracy 80%+ 时可设置 `natural`，让训练集 fake 占比贴近验证/测试集分布。
-- 新增面向用户交付的 `README.md`，说明普通 Python 环境准备、数据划分、训练、评估和当前 81.66% Accuracy 参考结果；交付文档不包含 Slurm 使用说明。
+- 新增面向用户交付的 `README.md`，说明普通 Python 环境准备、数据划分、训练、评估、调参过程和当前 81.66% Accuracy 参考结果；交付文档不包含 Slurm 使用说明。
 
 ## Next TODO
 
